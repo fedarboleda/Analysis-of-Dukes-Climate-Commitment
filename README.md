@@ -1,4 +1,4 @@
-# project-02-stat_stainable
+# Analysis of Duke's Climate Commitment
 
 In September 2022, Duke administration unveiled the "Duke Climate Commitment," a series of goals intended on "activating every facet of our institution 
 to create a model for educating and deploying a generation of climate- and sustainability-fluent change makers" — including achieving carbon neutrality by 
