@@ -1,0 +1,1011 @@
+---
+title: "The Road to Carbon Neutrality"
+author: Stats-tainable
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+---
+
+```{r packages, include = FALSE}
+
+#install.packages("plotly")
+
+library(flexdashboard)
+library(tidyverse)
+library(readxl)
+library(gt)
+library(tidyr)
+library(scales)
+library(plotly)
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+library(RColorBrewer)
+
+```
+
+```{r load-data, include = FALSE}
+
+emissions_summary <- read_excel(
+  "../data/DukeGHGEmissions_FY07toFY22.xlsx", 
+  range = "A6:E21", 
+  col_names = c("year", "scope_1_emissions", "scope_2_emissions", 
+                "scope_3_emissions", "total_emissions"))
+
+scope_1_emissions <- read_excel(
+  "../data/scope_1.xlsx", 
+  skip = 3, 
+  col_names = c("year", "coal", "nat_gas", "fuel_oil", "propane", 
+                "gasoline", "diesel", "synth_fertilizer", "org_fertilizer", 
+                "HFC_134a", "HFC_404a", "HCFC_22")
+  ) |>
+  mutate(
+    HFC_134a = if_else(HFC_134a < 0, -1 * HFC_134a, HFC_134a), 
+    HCFC_22 = if_else(HCFC_22 < 0, -1 * HCFC_22, HCFC_22)
+  )
+
+scope_2_emissions <- read_excel(
+  "../data/scope_2.xlsx", 
+  skip = 2, 
+  col_names = c("year", "electricity")
+  )
+
+scope_3_emissions <- read_excel(
+  "../data/scope_3.xlsx", 
+  skip = 3, 
+  col_names = c("year", "gasoline", "diesel", "air_travel", "nat_gas", 
+                "transmission_losses", "incinerated_waste", "landfilled_waste")
+  )
+
+population <- read_excel("../data/population.xlsx") |>
+  rename("year" = "Year", 
+         "full_time_student" = "Full-Time Students", 
+         "du" = "Total Students, Staff, and Faculty (Company Code 10)", 
+         "du_and_duhs" = "Total Students, Staff, and Faculty (Univ and DUHS)", 
+         "percent_du" = "% Univ, SOM,  SON", 
+         "percent_duhs" = "Hospital", 
+         "duhs" = "Health System"
+  )
+
+air_travel <- read_excel("~/stat-stainable/data/air_travel.xlsx")
+
+faculty_travel <- read_excel(
+  "~/stat-stainable/data/faculty_travel.xlsx",
+  skip = 1,
+  col_names = c("year", "faculty_population", "avg_distance", 
+                "drive_alone", "carpool", "bus")
+  )
+
+staff_travel <- read_excel("~/stat-stainable/data/staff_travel.xlsx")
+
+fuel_consumption <- read_excel("~/stat-stainable/data/fuel_consumption.xlsx")
+
+electricity_usage <- read_excel("~/stat-stainable/data/electricity_usage.xlsx")
+
+```
+
+
+Emissions Overview
+================================
+
+Row {data-height=150}
+-------------------------------------
+
+### Scope Definitions 
+#### SCOPE 1: emissions that occur from activities that are directly controlled or owned by Duke
+#### SCOPE 2: emissions that occur from energy use on campus that are not owned nor operated by Duke University
+#### SCOPE 3: all other emissions that do not fall within Scope 1 or Scope 2
+
+### Geographic Boundaries
+#### INCLUDED: University, School of Medicine/Nursing, Marine Lab
+#### EXCLUDED: Health System, Leased Assets, International Campus
+
+
+Row {data-height=500}
+-------------------------------------
+
+### Overview Plot
+    
+```{r data-wrangling-overview, include = FALSE}
+
+# Emissions Overview Plot
+emissions_summary_longer <- emissions_summary |>
+  select(year, starts_with("scope")) |>
+  pivot_longer(cols = starts_with("scope"),
+               names_to = "scope",
+               values_to = "emissions") |>
+  mutate(scope = case_when(
+    scope == "scope_1_emissions" ~ "Scope 1",
+    scope == "scope_2_emissions" ~ "Scope 2",
+    scope == "scope_3_emissions" ~ "Scope 3"
+  )) 
+
+emissions_summary_longer$scope <- factor(
+  emissions_summary_longer$scope,
+  levels = c("Scope 3","Scope 2", "Scope 1")
+  )
+
+emissions_summary_longer$year <- as.numeric(emissions_summary_longer$year)
+```
+
+```{r overview-plot}
+
+overview_plot <- emissions_summary_longer |>
+  ggplot(aes(x = year, y = emissions, fill = scope)) +
+  geom_area(position = "stack", stat = "identity") +
+  annotate(
+    geom = "text", 
+    x = 2014.5, 
+    y = 25000, 
+    label = "Scope 1",
+    size = 6,
+    fontface = "bold",
+    color = "white"
+    ) +
+  annotate(
+    geom = "text", 
+    x = 2014.5,
+    y = 125000,
+    label = "Scope 2",
+    size = 6,
+    fontface = "bold",
+    color = "white"
+    ) +
+  annotate(
+    geom = "text", 
+    x = 2014.5,
+    y = 225000,
+    label = "Scope 3",
+    size = 6,
+    fontface = "bold",
+    color = "white"
+    ) +
+  coord_cartesian(expand = FALSE) +
+  scale_x_continuous(
+    breaks = seq(2007, 2022, 1)
+  ) +
+  scale_y_continuous(
+    breaks = seq(50000, 350000, by = 50000),
+    labels = label_number(suffix = "K", scale = 1e-3)
+    ) +
+  scale_fill_manual(values = c("firebrick", "forestgreen", "#012169")) +
+  labs(
+    title = "Duke Emissions Summary",
+    x = "Year",
+    y = "Emissions (metric tons of CO2)",
+    fill = "Scope"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5),
+    axis.title = element_text(size = 15),
+    legend.position = "none",
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+ggplotly(overview_plot)
+```
+
+Row {data-height=300}
+-------------------------------------
+
+### Student Population Plot
+    
+```{r data-wrangling-per-student, include = FALSE}
+
+# Emissions Per Student Plot
+emissions_population <- 
+  cbind(population, total_emissions = emissions_summary$total_emissions) 
+
+emissions_population <- emissions_population |>
+  mutate(total_em_per_student = total_emissions / full_time_student)
+```
+
+```{r student-population-plot}
+
+student_population_plot <- emissions_population |>
+  ggplot(aes(x = year, y = full_time_student)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = seq(2007, 2022, 1)) +
+  scale_y_continuous(
+    breaks = seq(13000, 18000, by = 1000),
+    labels = label_number(suffix = "K", scale = 1e-3)
+    ) +
+  labs(
+    title = "Duke Student Population",
+    x = "Year",
+    y = "Full-Time Students"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 18),
+    axis.title = element_text(size = 15),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+ggplotly(student_population_plot)
+```
+
+### Emissions per Student Plot
+
+```{r per-student-plot}
+
+emissions_per_student_plot <- emissions_population |>
+  ggplot(aes(x = year, y = total_em_per_student)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = seq(2007, 2022, 1)) +
+  scale_y_continuous(limits = c(0, NA), breaks = seq(0, 30, 5)) +
+  labs(
+    title = "Total Emissions per Student",
+    x = "Year",
+    y = "Metric Tons CO2\nper 1 Student"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 18),
+    axis.title = element_text(size = 15),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+ggplotly(emissions_per_student_plot)
+```
+
+
+Scope 1
+================================
+
+Row {data-height=200}
+-------------------------------------
+
+### Description
+#### Scope 1 emissions occur from activities that are directly controlled or owned by Duke. Duke University accounts for emissions from the following Scope 1 activities:
+####    - Fuel used on campus in steam and hot water plants
+####    - Fuel used in Duke-owned vehicles
+####    - Fertilizer used on Duke-owned property
+####    - Refrigerants
+
+Row {data-height=170}
+-------------------------------------
+
+### Scope 1 2022 Table
+
+```{r scope-1-2022-table}
+
+scope_1_table <- scope_1_emissions |>
+  filter(year == 2022) |>
+  pivot_longer(
+    cols = -year, 
+    names_to = "type",
+    values_to = "emissions"
+  ) |>
+  arrange(desc(emissions)) |>
+  mutate(prop = emissions/sum(emissions)) |>
+  pivot_wider(
+    id_cols = "year", 
+    names_from = "type", 
+    values_from = "prop"
+  ) |>
+  select(-year) |>
+  gt() |>
+  fmt_percent(
+    columns = everything(), 
+    decimals = 1
+  ) |>
+  cols_label(
+    coal = "Coal", 
+    nat_gas = "Natural gas", 
+    fuel_oil = "Fuel oil", 
+    propane = "Propane", 
+    gasoline = "Gasoline", 
+    diesel = "Diesel", 
+    synth_fertilizer = "Synthetic fertilizer", 
+    org_fertilizer = "Organic fertilizer", 
+    HFC_134a = "HFC-134a", 
+    HFC_404a = "HFC-404a", 
+    HCFC_22 = "HCFC-22"
+  ) |>
+  tab_spanner(
+    label = "Duke's Scope 1 Emissions, 2022",
+            columns = everything()
+  ) |>
+  tab_style(
+    style = cell_text(size = "small"), 
+    locations = cells_body(columns = everything())
+  ) |>
+  tab_options(table.width = pct(80))
+
+scope_1_table
+```
+
+
+Row {data-height=500}
+-------------------------------------
+
+### Scope 1 Summary Plot
+    
+```{r data-wrangling-scope-1, include = FALSE}
+
+# Scope 1 Summary Plot
+scope_1 <- scope_1_emissions |>
+  rename(
+    "Coal" = coal, 
+    "Natural Gas" = nat_gas, 
+    "Fuel Oil" = fuel_oil, 
+    "Propane" = propane, 
+    "Gasoline" = gasoline, 
+    "Diesel" = diesel, 
+    "Synthetic Fertilizer" = synth_fertilizer, 
+    "Organic Fertilizer" = org_fertilizer, 
+    "HFC-134a" = HFC_134a, 
+    "HFC-404a" = HFC_404a, 
+    "HCFC-22" = HCFC_22
+  ) 
+
+scope_1_longer <- scope_1 |>
+  pivot_longer(cols = c("Coal", "Natural Gas", "Fuel Oil", "Propane", 
+                        "Gasoline", "Diesel", "Synthetic Fertilizer",
+                        "Organic Fertilizer", "HFC-134a", "HFC-404a",
+                        "HCFC-22"),
+               names_to = "source",
+               values_to = "emissions") 
+
+scope_1_label <- data.frame(
+  year = 2012,
+  emissions = 83000,
+  label = "Duke fully switches\nfrom coal to\nnatural gas"
+)
+```
+
+```{r scope-1-plot}
+
+scope_1_plot <- scope_1_longer |>
+  ggplot(aes(x = year, y = emissions)) +
+  geom_line(aes(color = source)) +
+  geom_point(aes(color = source)) +
+  geom_line(
+    data = emissions_summary_longer |> filter(scope == "Scope 1"),
+    color = "#012169",
+    linewidth = 1
+    ) +
+  geom_point(
+    data = emissions_summary_longer |> filter(scope == "Scope 1"),
+    color = "#012169",
+    size = 2
+    ) +
+  geom_text(
+    data = scope_1_label,
+    aes(label = label),
+    size = 3
+  )+
+  annotate(
+    "segment",
+    x = 2012, xend = 2012,
+    y = 0, yend =  78000,
+    alpha = .3
+  ) +
+  scale_x_continuous(
+    breaks = seq(2007, 2022, 1)
+  ) +
+  scale_y_continuous(
+    breaks = seq(-25000, 100000, by = 25000),
+    labels = label_number(suffix = "K", scale = 1e-3)
+    ) +
+  labs(
+    title = "Scope 1 Emissions Overview",
+    x = "Year",
+    y = "Emissions (metric tons of CO2)",
+    color = "Source"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5),
+    axis.title = element_text(size = 15),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+ggplotly(scope_1_plot)
+```
+
+Row {data-height=450}
+-------------------------------------
+
+### HFCs Plot
+
+```{r hfc-plot}
+
+hfc_plot <- scope_1_emissions |>
+  pivot_longer(
+    cols = c("HFC_134a", "HCFC_22", "HFC_404a"), 
+    names_to = "hfc", 
+    values_to = "emissions"
+  ) |> 
+  ggplot(aes(x = year, y = emissions, color = as.factor(hfc))) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = seq(2007, 2022, 1)) +
+  scale_color_manual(
+    values = c("darkblue", "mediumblue", "lightblue"), 
+    labels = c("HCFC-22", "HFC-134a", "HFC-404a"), 
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.minor.y = element_blank(),
+    panel.grid.minor.x = element_blank(), 
+  ) +
+  labs(
+    x = "Year", 
+    y = "Metric Tons of CO2", 
+    title = "Hydrofluorocarbons Usage Emissions", 
+    color = "HFC Type"
+  )
+ 
+ggplotly(hfc_plot) |>
+  layout(legend = list(orientation = "h", x = 0.15, y = -0.25))
+```
+
+### Fertilizer Plot
+
+```{r data-wrangling-fertilizer}
+scope_1_fertilizer <- scope_1_emissions |>
+  # filter(year %in% c(2018:2022)) |>
+  select(synth_fertilizer, org_fertilizer, year) |>
+  pivot_longer(
+    cols = -year, 
+    names_to = "type", 
+    values_to = "emissions"
+  ) |>
+  mutate(type = case_when(type == "synth_fertilizer" ~ "Synthetic Fertilizer",
+                          type == "org_fertilizer" ~ "Organic Fertilizer"))
+```
+
+```{r fertilizer-plot}
+
+fertilizer_plot <- scope_1_fertilizer |>
+  ggplot(aes(x = year, y = emissions, fill = type)) +
+  geom_col() +
+  theme_minimal() +
+  scale_fill_manual(
+    labels = c("Organic", "Synthetic"), 
+    values = c("darkblue", "lightblue")
+    ) +
+  scale_x_continuous(breaks = seq(2007, 2022, 1)) +
+  theme(
+    panel.grid.minor.y = element_blank(), 
+    panel.grid.major.x = element_blank()
+    ) +
+  labs(
+    y = "Metric Tons of CO2", 
+    x = "Year", 
+    title = "Fertilizer Usage Emissions", 
+    fill = "Type of Fertilizer"
+  )
+
+ggplotly(fertilizer_plot) |>
+  layout(legend = list(orientation = "h", x = 0.15, y = -0.25))
+```
+
+
+Scope 2
+================================
+
+Row {data-height=75}
+-------------------------------------
+
+### Description
+#### Scope 2 emissions are emissions from energy use on campus that are not owned nor operated by Duke University. At Duke University, the only Scope 2 emissions that are reported are from electricity purchased from Duke Energy.
+
+Row {data-height=170}
+-------------------------------------
+
+### Scope 2 Over Time Table
+
+```{r scope-2-table}
+
+scope_2_table <- scope_2_emissions |>
+  pivot_wider(
+    names_from = "year", 
+    values_from = "electricity"
+  ) |>
+  gt() |>
+  fmt_number(
+    columns = everything(), 
+    suffixing = TRUE, 
+    decimals = 1
+  ) |>
+  tab_spanner(
+    label = "Electricity Emissions by Duke Over Time (metric tons of CO2)",
+    columns = everything()
+  ) |>
+  tab_style(
+    style = cell_text(size = "small"), 
+    locations = cells_body(columns = everything())
+  ) |>
+  tab_options(table.width = pct(80))
+
+scope_2_table
+```
+
+
+Row {data-height=500}
+-------------------------------------
+
+### Scope 2 Summary Plot
+    
+```{r data-wrangling-scope-2, include = FALSE}
+
+# Scope 2 Summary Plot
+scope_2 <- scope_2_emissions |>
+  rename(Electricity = electricity)
+
+scope_2_longer <- scope_2 |>
+  pivot_longer(cols = c("Electricity"),
+               names_to = "source",
+               values_to = "emissions") 
+```
+
+```{r scope-2-plot}
+
+scope_2_plot <- scope_2_longer |>
+  ggplot(aes(x = year, y = emissions, color = source)) +
+  geom_line(
+    color = "forestgreen", 
+    linewidth = 1
+  ) +
+  geom_point(
+    color = "forestgreen", 
+    size = 2
+  ) +
+  scale_x_continuous(breaks = seq(2007, 2022, 1)) +
+  scale_y_continuous(
+    limits = c(0, NA),
+    breaks = seq(0, 200000, by = 25000),
+    labels = label_number(suffix = "K", scale = 1e-3)
+  ) +
+  labs(
+    title = "Scope 2 Emissions Overview",
+    x = "Year",
+    y = "Emissions (metric tons of CO2)",
+    color = "Source"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5),
+    axis.title = element_text(size = 15),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+ggplotly(scope_2_plot)
+```
+
+Row {data-height=70}
+------------------------------------
+
+### Electricity Carbon Emissions Equation
+#### (kWh of Electricity Used / 1000) x Metric Tons of CO2 per kWh
+
+
+Row {data-height=450}
+-------------------------------------
+
+### Actual Electricity Usage
+
+```{r electricity-usage-plot}
+
+electricity_usage_plot <- electricity_usage |>
+  ggplot(aes(x = year, y = actual_usage_kWh)) +
+  geom_line(color = "forestgreen") +
+  geom_text(size = 7, label = "⚡") +
+  scale_x_continuous(breaks = seq(2007, 2022, 1)) +
+  scale_y_continuous(labels = label_number(suffix = "M", scale = 1e-6)) +
+  labs(
+    title = "Actual Electricity Usage",
+    x = "Year",
+    y = "Kilowatt Hours (kWh)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 18),
+    axis.title = element_text(size = 15),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+ggplotly(electricity_usage_plot)
+
+```
+
+### Carbon Emissions per kWh
+
+```{r electricity-mtco2-plot}
+
+electricity_mtco2_plot <- electricity_usage |>
+  ggplot(aes(x = year, y = MTCO2e_per_MWh)) +
+  geom_line(color = "forestgreen") +
+  geom_text(size = 7, label = "🔋") +
+  scale_x_continuous(breaks = seq(2007, 2022, 1)) +
+  # scale_y_continuous(labels = label_number(suffix = "M", scale = 1e-6)) +
+  labs(
+    title = "Carbon Emissions per kWh",
+    x = "Year",
+    y = "Metric Tons of CO2 per kWh"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 18),
+    axis.title = element_text(size = 15),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+ggplotly(electricity_mtco2_plot)
+
+```
+
+Scope 3
+================================
+
+Row {data-height=220}
+-------------------------------------
+
+### Description
+#### Scope 3 emissions is for all other emissions that do not fall within Scope 1 or Scope 2. Duke University accounts for emissions from the following Scope 3 activities:
+####    - Employee commuting
+####    - Air travel paid for by the university
+####    - Landfilled waste
+####    - Fugitive emissions from natural gas extraction and transport
+####    - Transmission losses from purchased electricity
+
+Row {data-height=170}
+-------------------------------------
+
+### Scope 3 2022 Table
+
+```{r scope-3-2022-table}
+
+scope_3_table <- scope_3_emissions |>
+  filter(year == 2022) |>
+  pivot_longer(
+    cols = -year, 
+    names_to = "type",
+    values_to = "emissions"
+  ) |>
+  arrange(desc(emissions)) |>
+  mutate(prop = emissions/sum(emissions)) |>
+  pivot_wider(
+    id_cols = "year", 
+    names_from = "type", 
+    values_from = "prop"
+  ) |>
+  select(-year) |>
+  gt() |>
+  fmt_percent(
+    columns = everything(), 
+    decimals = 1
+  ) |>
+  cols_label(
+    air_travel = "Air travel", 
+    nat_gas = "Natural gas", 
+    transmission_losses = "Transmission losses", 
+    incinerated_waste = "Incinerated waste", 
+    gasoline = "Gasoline", 
+    diesel = "Diesel", 
+    landfilled_waste = "Landfilled waste"
+  ) |>
+  tab_spanner(
+    label = "Duke's Scope 3 Emissions, 2022",
+            columns = everything()
+  ) |>
+  tab_style(
+    style = cell_text(size = "small"), 
+    locations = cells_body(columns = everything())
+  ) |>
+  tab_options(table.width = pct(80))
+
+scope_3_table
+```
+
+
+Row {data-height=500}
+-------------------------------------
+
+### Scope 3 Summary Plot
+    
+```{r data-wrangling-scope-3, include = FALSE}
+
+# Scope 3 Summary Plot
+scope_3 <- scope_3_emissions |>
+  rename(
+    "Gasoline" = gasoline,
+    "Diesel" = diesel,
+    "Air Travel" = air_travel,
+    "Natural Gas" = nat_gas,
+    "Transmission Losses" = transmission_losses,
+    "Incinerated Waste" = incinerated_waste,
+    "Landfilled Waste" = landfilled_waste
+  ) 
+
+scope_3_longer <- scope_3 |>
+  pivot_longer(cols = c("Gasoline", "Diesel", "Air Travel", "Natural Gas",
+                        "Transmission Losses", "Incinerated Waste",
+                        "Landfilled Waste"),
+               names_to = "source",
+               values_to = "emissions") 
+
+scope_3_label <- data.frame(
+  year = c(2017, 2021),
+  emissions = c(67000, 77000),
+  label = c("Duke begins accounting\nfor fugitive emissions\nfrom natural gas extraction\nand transport and\ntransmission losses", "Duke pauses travel\nand other operations\ndue to the COVID-19\npandemic")
+)
+```
+
+```{r scope-3-plot}
+
+scope_3_plot <- scope_3_longer |>
+  ggplot(aes(x = year, y = emissions)) +
+  geom_line(aes(color = source)) +
+  geom_point(aes(color = source)) +
+  geom_line(
+    data = emissions_summary_longer |> filter(scope == "Scope 3"),
+    color = "firebrick",
+    linewidth = 1
+    ) +
+  geom_point(
+    data = emissions_summary_longer |> filter(scope == "Scope 3"),
+    color = "firebrick",
+    size = 2
+    ) +
+  geom_text(
+    data = scope_3_label,
+    aes(label = label),
+    size = 3
+  ) +
+  annotate(
+    "segment",
+    x = 2017, xend = 2017,
+    y = 0, yend =  58000,
+    alpha = .3
+  ) +
+  annotate(
+    "segment",
+    x = 2021, xend = 2021,
+    y = 0, yend =  70000,
+    alpha = .3
+  ) +
+  scale_x_continuous(
+    breaks = seq(2007, 2022, 1)
+  ) +
+  scale_y_continuous(
+    breaks = seq(-25000, 100000, by = 25000),
+    labels = label_number(suffix = "K", scale = 1e-3)
+    ) +
+  labs(
+    title = "Scope 3 Emissions Overview",
+    x = "Year",
+    y = "Emissions (metric tons of CO2)",
+    color = "Source"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5),
+    axis.title = element_text(size = 15),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+ggplotly(scope_3_plot)
+```
+
+
+Row {data-height=450}
+-------------------------------------
+
+```{r data-wrangling-commute, include = FALSE}
+
+faculty_travel_longer <- faculty_travel |>
+  mutate(category = "faculty") |>
+  pivot_longer(
+    cols = c("drive_alone", "carpool", "bus"),
+    names_to = "method",
+    values_to = "percentage") |>
+  rename(faculty_avg_distance = avg_distance,
+         faculty_percentage = percentage) |>
+  select(-category)
+
+staff_travel_longer <- staff_travel |>
+  pivot_longer(
+    cols = c("drive_alone", "carpool", "bus"),
+    names_to = "method",
+    values_to = "percentage") |>
+  rename(staff_avg_distance = avg_distance,
+         staff_percentage = percentage) |>
+  select(-category)
+
+commutes_longer <- left_join(
+  faculty_travel_longer, staff_travel_longer,
+  by = c("year", "method"))
+```
+
+### Distance Plots
+
+```{r data-wrangling-distance, include = FALSE}
+
+distance_commutes <- commutes_longer |>
+  select(year, faculty_avg_distance, staff_avg_distance) |>
+  unique() |>
+  group_by(year) |>
+  mutate(avg_distance = mean(faculty_avg_distance, staff_avg_distance))
+```
+
+```{r distance-plot}
+
+distance_commutes_plot <- distance_commutes |>
+  ggplot(aes(x = year, y = avg_distance)) +
+  geom_line(color = "firebrick") +
+  geom_text(size = 7, color = "firebrick", label = "🚗") +
+  scale_x_continuous(breaks = seq(2007, 2022, 1)) +
+  labs(
+    title = "Average Commute Distance for Faculty and Staff",
+    x = "Year",
+    y = "Miles (one-way)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 18),
+    axis.title = element_text(size = 15),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+ggplotly(distance_commutes_plot)
+```
+
+### Commute Method Plot
+
+```{r data-wrangling-commute-method, include = FALSE}
+
+commutes_method <- commutes_longer |>
+  select(year, method, faculty_percentage, staff_percentage) |>
+  pivot_longer(
+    cols = c("faculty_percentage", "staff_percentage"),
+    names_to = "category",
+    values_to = "percentage"
+  ) |>
+  mutate(
+    category = case_when(category == "faculty_percentage" ~ "Faculty",
+                         category == "staff_percentage" ~ "Staff"),
+    method = case_when(method == "bus" ~ "Bus",
+                       method == "carpool" ~ "Carpool",
+                       method == "drive_alone" ~ "Drive Alone")
+    ) |>
+  group_by(year, method, category) |>
+  mutate(avg_percentage = mean(percentage)) |>
+  ungroup()
+
+commutes_method_for_plot <- commutes_method |>
+  select(year, method, avg_percentage) |>
+  group_by(year, method) |>
+  mutate(avg_percentage = mean(avg_percentage)) |>
+  unique()
+
+```
+
+```{r commute-method-plot}
+
+commutes_method_plot <- commutes_method_for_plot |>
+  ggplot(aes(x = year, y = avg_percentage, fill = method)) +
+  geom_col(position = "fill") +
+  labs(
+    title = "Reported Commute Method for Faculty and Staff",
+    x = "Year",
+    y = "Proportion",
+    fill = "Method"
+  ) +
+  scale_fill_manual(values = c("firebrick1", "firebrick4", "firebrick")) +
+  scale_x_continuous(breaks = seq(2007, 2022, 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16),
+    axis.title = element_text(size = 12),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+ggplotly(commutes_method_plot) |>
+  layout(legend = list(orientation = "h", x = 0.15, y = -0.3))
+```
+
+Row {data-height=300}
+-------------------------------------
+
+### Air Travel Plot
+
+```{r air-travel-plot}
+
+air_travel_plot <- air_travel |>
+  ggplot(aes(x = year, y = miles_flown)) +
+  geom_line(color = "firebrick") +
+  geom_text(size = 7, label = "✈️") +
+  scale_x_continuous(breaks = seq(2007, 2022, 1)) +
+  scale_y_continuous(labels = label_number(suffix = "M", scale = 1e-6)) +
+  labs(
+    title = "Air Travel Funded by Duke",
+    x = "Year",
+    y = "Miles Flown"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 18),
+    axis.title = element_text(size = 15),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+ggplotly(air_travel_plot)
+```
+
+Write-Up
+================================
+
+Introduction
+
+In September 2022, Duke administration unveiled the "Duke Climate Commitment," a series of goals, including achieving carbon neutrality by 2024. This project focuses on emissions for three main reasons: 
+
+1. The carbon neutrality goal is the centerpiece of Duke's Climate Commitment
+2. Duke has the most ambitious emissions goals among "Ivy Plus" schools 
+3. Emissions is by far the most comprehensive climate-related data available. 
+
+With the help of Sustainable Duke, we obtained a spreadsheet containing all data available on GHG emissions by Duke University and its operations collected from 2007 to 2022, as well as details about Duke’s GHG accounting process. Duke calculates its emissions as most large organizations do, categorizing emissions into Scope 1, 2, and 3. Each scope is then broken down into further categories based on the actual sources of the emissions. The data used, all from the Sustainable Duke GHG spreadsheet, are as follows (additional details provided in data ``README.md`` file):
+
+Total Emissions: sum of emissions each year; 1 row per year, 4 columns representing each scope and sum of scope emissions
+Scope 1: direct emissions from sources owned and controlled by Duke University; 1 row per year, 1 column each representing a different source under Scope 1
+Scope 2: indirect emissions from sources owned by Duke University; 1 row per year, 1 column each representing a different source under Scope 2
+Scope 3: indirect emissions from sources not owned by Duke University but occur as a result of campus operations; 1 row per year, 1 column each representing a different source under Scope 3
+
+Additional supplementary data frames containing values from which emissions are calculated
+We recognize that some graphs have already been created to visualize Duke's climate impact, but many are found in separate web pages in different formats. Furthermore, almost all 
+visualizations from Duke are designed to only highlight the positive aspects of Duke's environmental impact. The focus of this project is on data transparency and accessibility, providing unprecedented insight on how GHG emissions are calculated and reported. With this project, our team aimed to create a helpful tool for students and the public to hold the administration accountable for their promises of a carbon-neutral future.
+
+
+Overview Tab
+
+The Overview tab features brief details about the emissions data at large, a large visualization of the total emissions over the years, and two smaller visualizations providing student population details. Definitions are included for accessibility; people with no prior knowledge of emissions can readily understand the dashboard visualizations. The geographic boundaries support transparency; understanding what is and isn’t included in the emissions allows viewers to evaluate how complete the visualizations provided are, as well as where gaps may be for Duke to be more comprehensive about their GHG accounting. All emissions visualized throughout the dashboard are done so in metric tons of carbon dioxide.
+
+The Duke Emissions Summary visualization represents the total emissions per scope over the years through an area graph. Each scope is assigned a distinct color (Scope 1 is specifically [“Duke Blue”](https://en.wikipedia.org/wiki/Duke_blue) because it represents emissions directly from university-owned sources), and those colors carry on to form a general theme for each of the corresponding scope tags so viewers can immediately register which scope is relevant and easily draw connections. We recognize that this approach is not as accessible to those with colorblindness or other visual impairments, but we hope to mitigate this by making all graphs interactive using ``ggplotly`` so anyone can simply hover and see the data points, rather than relying on the visualizations alone. The results for the overview visualization demonstrate that there has been a steady decrease of emissions across all scopes over time. The bottom two plots aid in contextualizing the emissions based on Duke’s student population. Because the extent of the emissions calculations are limited to Duke University operations, we only visualized the student population and the emissions per student, rather than per the elusive number of total Duke community members. These suggest that Duke’s progress may be even more significant, as emissions have decreased despite a significant increase of student population by over 4 thousand students. 
+
+
+Scope 1
+
+The Scope 1 tab features an in-depth description of the scope and what it entails, as well as a table that highlights the main sources of these types of emissions by Duke University in 2022. Beneath the table is an overview visualization, featuring the emissions over time from Scope 1 sources; the thicker dark blue line at the top represents the total Scope 1 emissions. Both the table and visualization support that natural gas is by far the largest producer of carbon dioxide emissions by Duke-owned processes, making up 93.9% of emissions last year. Interestingly, coal, and propane both made up near-zero percent of emissions by Duke operations in 2022. 
+
+The two plots on bottom highlight trends in the usage of these scope one emissions in recent years. The left plot is a line plot showing carbon dioxide emissions, in metric tons, from three hydrofluorocarbons used in Duke-owned operations from 2007 to 2022. Up until around 2012, the refrigerant HCFC-22, known for producing multiple ozone-depleting chemicals, was by far the highest-emitting hydrofluorocarbon by Duke. However, emissions from alternative hydrofluorocarbons started to increase following this year. HFC-134a and HFC-404a, [both refrigerants with lower ozone-depletion potential than HCFC-22](https://www.freon.com/en/products/refrigerants/r404a), started comprising a bigger share of hydrofluorocarbon emissions from Duke starting around 2018. Thus, by transitioning to these new refrigerants, Duke is also holding up its commitment to minimizing its depleting effect on the ozone layer. 
+
+The right plot zooms in a bit more on emissions from fertilizer usage at Duke University over the past five years. From 2007 to 2020, Duke-owned operations used both organic and synthetic fertilizers; in fact, the majority of fertilizer emissions were by synthetic fertilizers during these years. However, starting in 2021, emissions by synthetic fertilizers crashed down to zero, and the only fertilizer emissions by Duke-owned processes were by organic fertilizers. Thus, Duke is also abiding by its climate commitment by ensuring that the ecosystems surrounding campus are thriving.  
+
+
+Scope 2
+
+Scope 2 focuses entirely on electricity as indirect emissions from sources owned by Duke University.  Like Scope 1, this tab also features a more in-depth description, a table, and an overview visualization. The table differs in representing the total emissions per year over time. The overview visualization, supported by the table, shows a simple yet key trend. Over the last 15 years, electricity usage in the form of MTCO2e has been steadily declining, from over 175,000 metric tons in 2007 to a bit under 75,000 tons in the early 2020s. This trend, while definitely exciting, may be attributed to other reasons. Energy efficiency has improved in the past decade, and Duke could have just constructed more energy efficient infrastructure. It is also crucial to point out in the graph that COVID-19 had an impact on the university’s electricity usage, though surprisingly not as dramatically as emissions from other sources. This dip is followed by the small increase in electricity usage, signifying most students’ return to campus, which means a rise in usage to support increased operations. It would be useful to have more information and distinction between the sources of the electricity, such as how much each building or area of campus is using, but Sustainable Duke either does not collect or does not report that information.
+
+Next, an equation for calculating Scope 2 emissions is included, and the two plots below the overview plot visualize the two variables that go into that equation. First, we have included a visualization of the actual electricity usage, mapping kilowatt hours used per year. This visualization shows a decrease in usage since 2007, but in a less steady trend than with other figures. There are significant dips in 2010, 2013-2015, and 2021. The 2021 dip can likely be attributed to COVID-19, but the reasoning for the other dips are less clear. The second visualization, of carbon emissions per kWh, does have a more steady declining trend. Since Duke University purchases all of its electricity from Duke Energy, these figures are based on the emissions efficiency of Duke Energy. Thus, these visualizations show two avenues in which Duke can track their emissions progress: using less electricity and increasing electricity emissions efficiency. With Duke University and Duke Energy’s [reported commitment](https://sustainability.duke.edu/metrics/energy) to transitioning to renewable sources, we anticipate a decrease in all of these values leading up to carbon neutrality.
+
+
+Scope 3
+
+Scope 3 focuses on all emissions that are not within Scope 1 or 2. Like Scope 1, it includes a description and table with accessible values from 2022, as well as an overview visualization. In the table, we can see that gasoline makes up the largest portion of the emissions at 40.2%, with air travel following closely behind. Transmission losses make up 20% and all other categories are relatively trivial at sub 3%. 
+
+Seeing as air travel and gasoline were by far the most significant emitters since 2007 and still in 2022, we found it useful to delve into these details and visualize travel information. We included two visualizations based on the staff and faculty commute data. These show that the average staff/faculty member’s commute has almost doubled since 2007, and since average fuel efficiency (not visualized) has not changed significantly, this means that carbon emissions have significantly increased based on this factor alone. The other plot visualizes staff/faculty commute methods and finds that, prior to 2020, at least a small proportion of those that reported their commute method chose less emitting options (bus, carpool), but after 2020, all those that reported drove alone. Granted, a smaller proportion reported their commute method, but this visualization shows that Duke may need to put more effort into encouraging or making more accessible eco-friendly commuting options. Finally, the last visualization shows that Duke funds tens of millions of air travel millions each year, which has stayed relatively similar over the years up until it dropped in 2021 due to the pandemic. The miles flown has increased after the pandemic, so it has worth continuing to track further down the line to see if Duke makes any effort to decrease air travel, which is a very significant contributor to its Scope 3 climate impact.
+
+
+Conclusion
+
+Overall, our project reveals promising trends in Duke’s emissions and energy usage data. The trends (for the most part in most fields) demonstrate a clear downward pattern, which means Duke is adhering to their energy reduction goals. However, there is still much progress needed, both in terms of emissions reductions and our goals of emissions data transparency. More comprehensive data should be gathered and reported on sources. For example, it is helpful to find that electricity usage is decreasing or increasing, but what would be more helpful is to identify which buildings are using the most electricity, why, and how that might be mitigated. This would allow for more actionable goals that Duke lacks in its Climate Commitment.
+Finally, we must continue to be vigilant as we move away from two main things: Duke’s Climate Commitment announcement and COVID-19. Much of the “progress” might be more linked to the decrease in operations because of the pandemic, which we will likely find out in the coming years if energy usage and emissions revert to pre-pandemic levels. Furthermore, Duke set out some very ambitious goals recently, so it is definitely worth revisiting this data in a few years. A follow-up project would be helpful to see where Sustainable Duke sources its numbers and using multiple Duke-affiliated energy resources for cross-verification. This will increase the trustworthiness of the projects and continue a legacy of transparent emissions data. However, as it stands, we hope our project serves to inspire future statistics students who are curious about Duke’s environmental impact. 

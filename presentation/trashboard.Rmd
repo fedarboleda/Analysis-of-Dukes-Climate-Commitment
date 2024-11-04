@@ -1,0 +1,337 @@
+---
+title: "Dashboard"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include = FALSE}
+
+library(flexdashboard)
+library(tidyverse)
+library(readxl)
+library(gt)
+library(janitor)
+
+emissions_summary <- read_excel(
+  "../data/DukeGHGEmissions_FY07toFY22.xlsx", 
+  range = "A6:E21", 
+  col_names = c("year", "scope_1_emissions", "scope_2_emissions", 
+                "scope_3_emissions", "total_emissions"))
+
+scope_1_emissions <- read_excel(
+  "../data/scope_1.xlsx", 
+  skip = 3, 
+  col_names = c("year", "coal", "nat_gas", "fuel_oil", "propane", 
+                "gasoline", "diesel", "synth_fertilizer", "org_fertilizer", 
+                "HFC_134a", "HFC_404a", "HCFC_22")
+  ) |>
+  mutate(
+    HFC_134a = if_else(HFC_134a < 0, -1 * HFC_134a, HFC_134a), 
+    HCFC_22 = if_else(HCFC_22 < 0, -1 * HCFC_22, HCFC_22)
+  )
+
+scope_2_emissions <- read_excel(
+  "../data/scope_2.xlsx", 
+  skip = 2, 
+  col_names = c("year", "electricity")
+  )
+
+scope_3_emissions <- read_excel(
+  "../data/scope_3.xlsx", 
+  skip = 3, 
+  col_names = c("year", "gasoline", "diesel", "air_travel", "nat_gas", 
+                "transmission_losses", "incinerated_waste", "landfilled_waste")
+  )
+
+population <- read_excel("../data/population.xlsx") |>
+  rename("year" = "Year") |>
+  rename("full_time_student" = "Full-Time Students") |>
+  rename("du" = "Total Students, Staff, and Faculty (Company Code 10)") |>
+  rename("du_and_duhs" = "Total Students, Staff, and Faculty (Univ and DUHS)") |>
+  rename("percent_du" = "% Univ, SOM,  SON") |>
+  rename("percent_duhs" = "Hospital") |>
+  rename("duhs" = "Health System")
+
+emissions_pop_summary <- full_join(emissions_summary, population, by = "year") |>
+  pivot_longer(
+    cols = starts_with("scope"),
+    names_to = "scope",
+    values_to = "emissions"
+  ) |>
+  mutate(
+    emissions = as.numeric(emissions),
+    full_time_student = as.numeric(full_time_student),
+    em_per_person_du = (percent_du * emissions) / du,
+    em_per_person_duhs = (percent_duhs * emissions) / duhs,
+  )
+```
+
+Overview
+================================
+
+```{r overview-plot}
+
+ggplot(emissions_pop_summary) +
+  geom_line(aes(x = year, y = emissions, color = scope))
+
+ggplot(emissions_pop_summary) +
+  geom_line(aes(x = year, y = em_per_person_du, color = scope))
+
+ggplot(emissions_pop_summary) +
+  geom_line(aes(x = year, y = em_per_person_duhs, color = scope))
+```
+
+Scope 1 Emissions
+================================
+
+Column {data-width = 700}
+-----------------------------------------------------------------------
+
+### Chart B
+
+```{r scope-1-hfc-usage}
+
+hfc_plot <- scope_1_emissions |>
+  pivot_longer(
+    cols = c("HFC_134a", "HCFC_22", "HFC_404a"), 
+    names_to = "hfc", 
+    values_to = "emissions"
+  ) |> 
+  ggplot() +
+  geom_line(aes(x = year, y = emissions, color = hfc)) +
+  scale_color_manual(
+    values = c("firebrick4", "firebrick1", "#ED731F"), 
+    labels = c("HCFC-22", "HFC-134a", "HFC-404a")
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = c(0.6, 0.75), 
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.x = element_blank(), 
+    panel.grid.minor.x = element_blank(), 
+    panel.grid.major.y = element_blank()
+  ) +
+  labs(
+    x = "Year", 
+    y = "Carbon dioxide emissions (Mg)", 
+    title = "Usage of hydrofluorocarbons by Duke University", 
+    color = "Hydrofluorocarbon"
+  )
+ 
+
+hfc_plot
+```
+
+### Chart C
+
+```{r scope-1-fert-plot}
+
+scope_1_fertilizer <- scope_1_emissions |>
+  filter(year %in% c(2018:2022)) |>
+  select(synth_fertilizer, org_fertilizer, year) |>
+  pivot_longer(
+    cols = -year, 
+    names_to = "type", 
+    values_to = "emissions"
+  ) |>
+  ggplot() +
+  geom_col(aes(x = as.factor(year), y = emissions, fill = type)) +
+  theme_minimal() +
+  theme(
+    legend.position = c(0.8, 0.65), 
+    panel.grid.minor.y = element_blank(), 
+    panel.grid.major.x = element_blank()
+  ) +
+  scale_fill_manual(labels = c("Organic", "Synthetic"), values = c("firebrick4", "firebrick1")) +
+  labs(
+    y = "Carbon dioxide emissions (Mg)", 
+    x = "Year", 
+    title = "Fertilizer emissions by Duke University (2018-2022)", 
+    subtitle = "By type", 
+    fill = "Type of fertilizer"
+  )
+
+scope_1_fertilizer
+```
+
+Scope 2 Emissions
+================================
+
+```{r scope-2-electricity-usage}
+
+ggplot(scope_2_emissions) +
+  geom_line(aes(x = year, y = electricity)) + 
+  labs(x = "Year", y = "Emissions (MTCO2e)", 
+       title = "Duke Emissions From Electricity Usage From 2007 to 2022") + 
+  theme_minimal()
+```
+
+```{r scope-1-table}
+
+scope_1_table <- scope_1_emissions |>
+  filter(year == 2022) |>
+  pivot_longer(
+    cols = -year, 
+    names_to = "type",
+    values_to = "emissions"
+  ) |>
+  arrange(desc(emissions)) |>
+  mutate(prop = emissions/sum(emissions)) |>
+  pivot_wider(
+    id_cols = "year", 
+    names_from = "type", 
+    values_from = "prop"
+  ) |>
+  select(-year) |>
+  gt() |>
+  fmt_percent(
+    columns = everything(), 
+    decimals = 1
+  ) |>
+  cols_label(
+    coal = "Coal", 
+    nat_gas = "Natural gas", 
+    fuel_oil = "Fuel oil", 
+    propane = "Propane", 
+    gasoline = "Gasoline", 
+    diesel = "Diesel", 
+    synth_fertilizer = "Synthetic fertilizer", 
+    org_fertilizer = "Organic fertilizer", 
+    HFC_134a = "HFC-134a", 
+    HFC_404a = "HFC-404a", 
+    HCFC_22 = "HCFC-22"
+  ) |>
+  tab_spanner(
+    label = "Duke's Scope 1 Emissions, 2022",
+            columns = everything()
+  ) |>
+  tab_style(
+    style = cell_text(size = "small"), 
+    locations = cells_body(columns = everything())
+  )
+
+scope_1_table
+```
+
+```{r scope-2-table}
+
+scope_2_table <- scope_2_emissions |>
+  pivot_wider(
+    names_from = "year", 
+    values_from = "electricity"
+  ) |>
+  gt() |>
+  fmt_number(
+    columns = everything(), 
+    suffixing = TRUE, 
+    decimals = 1
+  ) |>
+  tab_spanner(
+    label = "Electricity Emissions by Duke Over Time (metric tons of CO2)",
+    columns = everything()
+  ) |>
+  tab_style(
+    style = cell_text(size = "small"), 
+    locations = cells_body(columns = everything())
+  )
+
+scope_2_table
+```
+
+
+
+```{r scope-3-table}
+
+scope_3_table <- scope_3_emissions |>
+  filter(year == 2022) |>
+  pivot_longer(
+    cols = -year, 
+    names_to = "type",
+    values_to = "emissions"
+  ) |>
+  arrange(desc(emissions)) |>
+  mutate(prop = emissions/sum(emissions)) |>
+  pivot_wider(
+    id_cols = "year", 
+    names_from = "type", 
+    values_from = "prop"
+  ) |>
+  select(-year) |>
+  gt() |>
+  fmt_percent(
+    columns = everything(), 
+    decimals = 1
+  ) |>
+  cols_label(
+    air_travel = "Air travel", 
+    nat_gas = "Natural gas", 
+    transmission_losses = "Transmission losses", 
+    incinerated_waste = "Incinerated waste", 
+    gasoline = "Gasoline", 
+    diesel = "Diesel", 
+    landfilled_waste = "Landfilled waste"
+  ) |>
+  tab_spanner(
+    label = "Duke's Scope 3 Emissions, 2022",
+            columns = everything()
+  ) |>
+  tab_style(
+    style = cell_text(size = "small"), 
+    locations = cells_body(columns = everything())
+  )
+
+scope_3_table
+```
+
+
+```{r population-plot}
+
+commutes_population <- commutes_longer |>
+  select(year, faculty_population, staff_population) |>
+  unique() |>
+  group_by(year) |>
+  mutate(total_population = sum(faculty_population, staff_population))
+
+commutes_population_longer <- commutes_population |>
+  pivot_longer(
+    cols = c("faculty_population", "staff_population", "total_population"),
+    names_to = "category",
+    values_to = "population"
+  ) |>
+  mutate(
+    category = case_when(
+      category == "faculty_population" ~ "Faculty",
+      category == "staff_population" ~ "Staff",
+      category == "total_population" ~ "Total",
+    )
+  )
+
+commutes_population_plot <- commutes_population_longer |>
+  ggplot(aes(x = year, y = population, color = category)) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(values = c("firebrick2", "firebrick3", "firebrick")) +
+  scale_x_continuous(breaks = seq(2007, 2022, 1)) +
+  scale_y_continuous(
+    breaks = seq(0, 30000, by = 5000),
+    labels = label_number(suffix = "K", scale = 1e-3)
+    ) +
+  labs(
+    title = "Faculty and Staff Population",
+    x = "Year",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 18),
+    axis.title = element_text(size = 15),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+
+ggplotly(commutes_population_plot)
+
+```
+```

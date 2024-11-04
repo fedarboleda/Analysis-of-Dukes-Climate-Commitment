@@ -1,0 +1,1 @@
+# This folder contains the dashboard created for the project presentation (dashboard2.rmd), which is also our index.qmd file for this project. This has all plots as well as the write-up and analysis of the findings of the study. 
